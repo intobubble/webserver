@@ -1,5 +1,6 @@
 use core::fmt;
 use std::str::FromStr;
+use std::env;
 use axum::{
     routing::get,
     Router,
@@ -11,9 +12,12 @@ use log::info;
 #[tokio::main]
 async fn main() {
     env_logger::init();
+    dotenvy::dotenv().unwrap();
 
     let app = app();
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let host = env::var("HTTP_HOST").unwrap();
+    let port = env::var("HTTP_PORT").unwrap();
+    let listener = tokio::net::TcpListener::bind(format!("{}:{}", &host, &port)).await.unwrap();
     axum::serve(listener,app).await.unwrap();
 }
 
