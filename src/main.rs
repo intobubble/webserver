@@ -1,14 +1,18 @@
 use core::fmt;
-use std::str::FromStr;
+use std::{io, fs::File, str::FromStr};
 use std::env;
 use axum::{
     routing::get,
     Router,
     extract::Query,
+    extract::Path,
     Json,
 };
+use axum_macros::debug_handler;
+use reqwest::StatusCode;
 use serde::{de, Deserialize, Deserializer, Serialize};
-use log::{debug, info};
+use log::{debug, info, error};
+use url::Url;
 
 #[tokio::main]
 async fn main() {
@@ -24,13 +28,44 @@ async fn main() {
 }
 
 fn app() -> Router {
-    Router::new().route("/", get(get_root))
+    let app =  Router::new()
+        .route("/", get(get_root))
+        .route("/image/{x}/{y}", get(get_image));
+    app
 }
 
 async fn get_root(Query(params): Query<Params>) -> Json<Params> {
     let j  = Json(params);
     info!("{:?}", j);
     j
+}
+
+struct Size {
+    pub x: u16,
+    pub y: u16
+}
+
+/// https://docs.rs/axum/latest/axum/handler/index.html
+/// https://docs.rs/axum-macros/latest/axum_macros/attr.debug_handler.html
+#[debug_handler]
+async fn get_image(Path((x, y)): Path<(u16, u16)>) -> Result<(), StatusCode> {
+    match store_image(&Size{x,y}).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            error!("{}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn store_image(size: &Size) -> Result<(), Box<dyn std::error::Error>> {
+    let raw = format!("https://picsum.photos/{}/{}", &size.x, &size.y);
+    let url = Url::parse(&raw)?;
+    let response = reqwest::get(url).await?;
+    let bytes = response.bytes().await?;
+    let mut out = File::create(format!("image-{}-{}.png",  &size.x,  &size.y))?;
+    io::copy(&mut bytes.as_ref(), &mut out)?;
+    Ok(())
 }
 
 #[derive(Debug,  Deserialize, Serialize)]
