@@ -1,4 +1,7 @@
-use axum::{routing::get, Router};
+use axum::{
+    routing::{get, put},
+    Router,
+};
 use std::env;
 use tracing::{event, Level};
 pub mod handlers;
@@ -18,6 +21,8 @@ async fn main() {
 }
 
 fn app() -> Router {
-    let app = Router::new().route("/image/{x}/{y}", get(handlers::image::fetch::handle));
-    app
+    Router::new()
+        .route("/image", get(handlers::image::fetch::handle))
+        .route("/bucket", put(handlers::bucket::put_object::handle))
+        .route("/bucket", get(handlers::bucket::get_object::handle))
 }
