@@ -2695,6 +2695,7 @@ dependencies = [
  "axum-macros",
  "bytes",
  "dotenvy",
+ "http 1.2.0",
  "http-body-util",
  "log",
  "reqwest",
