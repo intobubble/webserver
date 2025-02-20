@@ -1,5 +1,6 @@
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
+use tracing::{event, Level};
 use url::{ParseError, Url};
 
 #[derive(Serialize, Deserialize)]
@@ -35,9 +36,18 @@ pub enum DownloadImageError {
 impl From<DownloadImageError> for StatusCode {
     fn from(value: DownloadImageError) -> Self {
         match value {
-            DownloadImageError::BuildUrl(_e) => StatusCode::BAD_REQUEST,
-            DownloadImageError::ReadBody(_e) => StatusCode::INTERNAL_SERVER_ERROR,
-            DownloadImageError::Request(_e) => StatusCode::INTERNAL_SERVER_ERROR,
+            DownloadImageError::BuildUrl(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::BAD_REQUEST
+            }
+            DownloadImageError::ReadBody(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+            DownloadImageError::Request(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }
@@ -53,8 +63,14 @@ pub enum SaveImageError {
 impl From<SaveImageError> for StatusCode {
     fn from(value: SaveImageError) -> Self {
         match value {
-            SaveImageError::CreateFile(_e) => StatusCode::INTERNAL_SERVER_ERROR,
-            SaveImageError::Write(_e) => StatusCode::INTERNAL_SERVER_ERROR,
+            SaveImageError::CreateFile(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+            SaveImageError::Write(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
+use tracing::{event, Level};
 
 #[derive(Serialize, Deserialize)]
 pub struct ObjectSeed {
@@ -56,9 +57,18 @@ pub enum DownloadImageError {
 impl From<DownloadImageError> for StatusCode {
     fn from(value: DownloadImageError) -> Self {
         match value {
-            DownloadImageError::BuildUrl(_e) => StatusCode::BAD_REQUEST,
-            DownloadImageError::ReadBody(_e) => StatusCode::INTERNAL_SERVER_ERROR,
-            DownloadImageError::Request(_e) => StatusCode::INTERNAL_SERVER_ERROR,
+            DownloadImageError::BuildUrl(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::BAD_REQUEST
+            }
+            DownloadImageError::ReadBody(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+            DownloadImageError::Request(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }
@@ -73,8 +83,14 @@ pub enum SaveImageError {
 impl From<SaveImageError> for StatusCode {
     fn from(value: SaveImageError) -> Self {
         match value {
-            SaveImageError::CreateFile(_e) => StatusCode::INTERNAL_SERVER_ERROR,
-            SaveImageError::Write(_e) => StatusCode::INTERNAL_SERVER_ERROR,
+            SaveImageError::CreateFile(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+            SaveImageError::Write(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }
@@ -88,7 +104,10 @@ pub enum PutObjectError {
 impl From<PutObjectError> for StatusCode {
     fn from(value: PutObjectError) -> Self {
         match value {
-            PutObjectError::Put(_e) => StatusCode::INTERNAL_SERVER_ERROR,
+            PutObjectError::Put(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }
@@ -108,10 +127,22 @@ pub enum GetObjectError {
 impl From<GetObjectError> for StatusCode {
     fn from(value: GetObjectError) -> Self {
         match value {
-            GetObjectError::Get(_e) => StatusCode::INTERNAL_SERVER_ERROR,
-            GetObjectError::Read(_e) => StatusCode::INTERNAL_SERVER_ERROR,
-            GetObjectError::CreateFile(_e) => StatusCode::INTERNAL_SERVER_ERROR,
-            GetObjectError::WriteFile(_e) => StatusCode::INTERNAL_SERVER_ERROR,
+            GetObjectError::Get(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+            GetObjectError::Read(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+            GetObjectError::CreateFile(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+            GetObjectError::WriteFile(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }
