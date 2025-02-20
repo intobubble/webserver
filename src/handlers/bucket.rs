@@ -27,6 +27,22 @@ impl std::fmt::Display for S3Error {
     }
 }
 
+impl<T: aws_sdk_s3::error::ProvideErrorMetadata> From<T> for S3Error {
+    fn from(value: T) -> Self {
+        S3Error(format!(
+            "{}: {}",
+            value
+                .code()
+                .map(String::from)
+                .unwrap_or("unknown code".into()),
+            value
+                .message()
+                .map(String::from)
+                .unwrap_or("missing reason".into())
+        ))
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum DownloadImageError {
     #[error("build url")]
@@ -54,23 +70,6 @@ pub enum SaveImageError {
     #[error("write buffer")]
     Write(#[source] std::io::Error),
 }
-
-impl<T: aws_sdk_s3::error::ProvideErrorMetadata> From<T> for S3Error {
-    fn from(value: T) -> Self {
-        S3Error(format!(
-            "{}: {}",
-            value
-                .code()
-                .map(String::from)
-                .unwrap_or("unknown code".into()),
-            value
-                .message()
-                .map(String::from)
-                .unwrap_or("missing reason".into())
-        ))
-    }
-}
-
 impl From<SaveImageError> for StatusCode {
     fn from(value: SaveImageError) -> Self {
         match value {
@@ -132,11 +131,11 @@ impl From<ListObjectsError> for StatusCode {
 }
 
 pub mod put_object {
-    use std::env;
-
+    use super::aws::build_shared_config;
     use super::{ObjectSeed, PutObjectError, S3Error};
     use axum::{extract::Json, http::StatusCode, response::IntoResponse};
     use axum_macros::debug_handler;
+    use std::env;
     use tracing::{event, Level};
 
     #[debug_handler]
@@ -149,7 +148,7 @@ pub mod put_object {
     async fn put_object(
         obj: &ObjectSeed,
     ) -> Result<aws_sdk_s3::operation::put_object::PutObjectOutput, PutObjectError> {
-        let config = aws_config::load_from_env().await;
+        let config = build_shared_config().await.load().await;
         let client = aws_sdk_s3::Client::new(&config);
         let source = format!("{}.png", &obj.key);
         let source = std::path::Path::new(&source);
@@ -171,11 +170,11 @@ pub mod put_object {
 }
 
 pub mod get_object {
-    use std::{collections::HashMap, env, io::Write};
-
+    use super::aws::build_shared_config;
     use super::{GetObjectError, ObjectSeed, S3Error};
     use axum::{extract::Query, http::StatusCode, response::IntoResponse};
     use axum_macros::debug_handler;
+    use std::{collections::HashMap, env, io::Write};
     use tracing::{event, Level};
 
     #[debug_handler]
@@ -192,7 +191,7 @@ pub mod get_object {
     }
 
     async fn get_object(obj: &ObjectSeed) -> Result<usize, GetObjectError> {
-        let config = aws_config::load_from_env().await;
+        let config = build_shared_config().await.load().await;
         let client = aws_sdk_s3::Client::new(&config);
 
         let bucket = env::var("AWS_S3_BUCKET_NAME").unwrap();
@@ -231,6 +230,7 @@ pub mod get_object {
 }
 
 pub mod list_objects {
+    use super::aws::build_shared_config;
     use super::{ListObjectsError, S3Error};
     use axum::{http::StatusCode, response::IntoResponse, Json};
     use axum_macros::debug_handler;
@@ -250,7 +250,7 @@ pub mod list_objects {
     }
 
     async fn list() -> Result<Vec<String>, ListObjectsError> {
-        let config = aws_config::load_from_env().await;
+        let config = build_shared_config().await.load().await;
         let client = aws_sdk_s3::Client::new(&config);
         let bucket = env::var("AWS_S3_BUCKET_NAME").unwrap();
         let resp = client
@@ -267,5 +267,27 @@ pub mod list_objects {
             .map(|c| c.key().unwrap_or_default().to_owned())
             .collect::<Vec<String>>();
         Ok(objs)
+    }
+}
+
+mod aws {
+    use aws_config::sts::AssumeRoleProvider;
+    use aws_config::BehaviorVersion;
+    use aws_config::ConfigLoader;
+    use aws_types::region::Region;
+    use std::env;
+
+    pub async fn build_shared_config() -> ConfigLoader {
+        let default_region = env::var("AWS_DEFAULT_REGION").unwrap();
+        let role_arn = env::var("AWS_IAM_ROLE_ARN").unwrap();
+
+        let region = Region::new(default_region);
+        let shared_config = aws_config::defaults(BehaviorVersion::latest()).region(region);
+        let provider = AssumeRoleProvider::builder(role_arn)
+            .session_name("webserver-session")
+            .build()
+            .await;
+
+        shared_config.credentials_provider(provider)
     }
 }

@@ -10,5 +10,9 @@
     "[rust]": {
         "editor.formatOnSave": true,
         "editor.formatOnType": true
+    },
+    "[toml]": {
+        "editor.formatOnSave": true,
+        "editor.formatOnType": true
     }
 }
