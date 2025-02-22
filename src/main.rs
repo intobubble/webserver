@@ -2,21 +2,26 @@ use axum::{
     routing::{get, put},
     Router,
 };
-use std::env;
+use config::APP_CONFIG;
 use tracing::{event, Level};
+pub mod config;
 pub mod handlers;
 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().unwrap();
-
+    let conf = APP_CONFIG.lock().await;
     let app = app();
-    let host = env::var("HTTP_HOST").unwrap();
-    let port = env::var("HTTP_PORT").unwrap();
-    let listener = tokio::net::TcpListener::bind(format!("{}:{}", &host, &port))
-        .await
-        .unwrap();
-    event!(Level::INFO, "web server is running on {}:{}", &host, &port);
+    let listener =
+        tokio::net::TcpListener::bind(format!("{}:{}", &conf.http_host, &conf.http_port))
+            .await
+            .unwrap();
+    event!(
+        Level::INFO,
+        "web server is running on {}:{}",
+        &conf.http_host,
+        &conf.http_port
+    );
     axum::serve(listener, app).await.unwrap();
 }
 
