@@ -2699,7 +2699,6 @@ dependencies = [
  "http 1.2.0",
  "http-body-util",
  "log",
- "once_cell",
  "reqwest",
  "serde",
  "thiserror",
