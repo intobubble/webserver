@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use url::{ParseError, Url};
+use validator::Validate;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct Image {
     pub x: u16,
     pub y: u16,
@@ -30,11 +31,14 @@ pub mod fetch {
     use axum_macros::debug_handler;
     use std::fs::File;
     use tracing::{event, Level};
+    use validator::Validate;
 
     type ErrResp = (StatusCode, String);
 
     #[derive(Debug, thiserror::Error)]
     pub enum FetchImageError {
+        #[error("invalid input")]
+        InvalidInput(#[source] validator::ValidationErrors),
         #[error("build url")]
         BuildUrl(#[source] url::ParseError),
         #[error("request")]
@@ -50,6 +54,10 @@ pub mod fetch {
     impl From<FetchImageError> for ErrResp {
         fn from(value: FetchImageError) -> Self {
             match value {
+                FetchImageError::InvalidInput(e) => {
+                    event!(Level::ERROR, "{}", e);
+                    (StatusCode::BAD_REQUEST, e.to_string())
+                }
                 FetchImageError::BuildUrl(e) => {
                     event!(Level::ERROR, "{}", e);
                     (StatusCode::BAD_REQUEST, e.to_string())
@@ -78,6 +86,10 @@ pub mod fetch {
     pub async fn handle(
         Query(image): Query<Image>,
     ) -> axum::response::Result<impl IntoResponse, ErrResp> {
+        image
+            .validate()
+            .map_err(FetchImageError::InvalidInput)
+            .map_err(ErrResp::from)?;
         let bytes = send_get(&image).await.map_err(ErrResp::from)?;
         save_as_file(&image, &bytes).await.map_err(ErrResp::from)?;
         Ok(())

@@ -115,8 +115,14 @@ pub mod get_object {
     use axum::extract::{Query, State};
     use axum::{http::StatusCode, response::IntoResponse};
     use axum_macros::debug_handler;
-    use std::{collections::HashMap, io::Write};
+    use serde::Deserialize;
+    use std::io::Write;
     use tracing::{event, Level};
+
+    #[derive(Deserialize)]
+    pub struct Params {
+        pub key: String,
+    }
 
     type ErrResp = (StatusCode, String);
 
@@ -158,9 +164,9 @@ pub mod get_object {
     #[debug_handler]
     pub async fn handle(
         State(app_config): State<AppConfig>,
-        Query(params): Query<HashMap<String, String>>,
+        Query(params): Query<Params>,
     ) -> Result<impl IntoResponse, ErrResp> {
-        let key = params.get("key").unwrap();
+        let key = params.key;
         let obj = ObjectSeed {
             key: key.to_owned(),
         };
