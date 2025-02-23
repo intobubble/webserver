@@ -156,16 +156,19 @@ pub enum ListObjectsError {
 impl From<ListObjectsError> for StatusCode {
     fn from(value: ListObjectsError) -> Self {
         match value {
-            ListObjectsError::List(_e) => StatusCode::INTERNAL_SERVER_ERROR,
+            ListObjectsError::List(e) => {
+                event!(Level::ERROR, "{}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }
 
 pub mod put_object {
-    use crate::config::AppConfig;
+    use crate::config::{AppConfig, AWS_DEFAULT_REGION};
 
-    use super::aws::build_shared_config;
     use super::{ObjectSeed, PutObjectError, S3Error};
+    use aws_config::{BehaviorVersion, Region};
     use axum::extract::{Json, State};
     use axum::{http::StatusCode, response::IntoResponse};
     use axum_macros::debug_handler;
@@ -183,11 +186,11 @@ pub mod put_object {
         Ok(())
     }
 
-    async fn put_object(
-        app_config: &AppConfig,
-        obj: &ObjectSeed,
-    ) -> Result<aws_sdk_s3::operation::put_object::PutObjectOutput, PutObjectError> {
-        let sdk_config = build_shared_config(app_config).await.load().await;
+    async fn put_object(app_config: &AppConfig, obj: &ObjectSeed) -> Result<(), PutObjectError> {
+        let sdk_config = aws_config::defaults(BehaviorVersion::latest())
+            .region(Region::from_static(AWS_DEFAULT_REGION))
+            .load()
+            .await;
         let client = aws_sdk_s3::Client::new(&sdk_config);
         let source = format!("{}.png", &obj.key);
         let source = std::path::Path::new(&source);
@@ -202,15 +205,16 @@ pub mod put_object {
             .send()
             .await
             .map_err(S3Error::from)
-            .map_err(PutObjectError::Put)
+            .map_err(PutObjectError::Put)?;
+        Ok(())
     }
 }
 
 pub mod get_object {
-    use crate::config::AppConfig;
+    use crate::config::{AppConfig, AWS_DEFAULT_REGION};
 
-    use super::aws::build_shared_config;
     use super::{GetObjectError, ObjectSeed, S3Error};
+    use aws_config::{BehaviorVersion, Region};
     use axum::extract::{Query, State};
     use axum::{http::StatusCode, response::IntoResponse};
     use axum_macros::debug_handler;
@@ -226,15 +230,18 @@ pub mod get_object {
         let obj = ObjectSeed {
             key: key.to_owned(),
         };
-        get_object(&app_config, &obj)
+        let size = get_object(&app_config, &obj)
             .await
             .map_err(StatusCode::from)?;
         event!(Level::INFO, "{}", &obj.key);
-        Ok(())
+        Ok(size.to_string())
     }
 
     async fn get_object(app_config: &AppConfig, obj: &ObjectSeed) -> Result<usize, GetObjectError> {
-        let sdk_config = build_shared_config(app_config).await.load().await;
+        let sdk_config = aws_config::defaults(BehaviorVersion::latest())
+            .region(Region::from_static(AWS_DEFAULT_REGION))
+            .load()
+            .await;
         let client = aws_sdk_s3::Client::new(&sdk_config);
         let mut object = client
             .get_object()
@@ -270,10 +277,10 @@ pub mod get_object {
 }
 
 pub mod list_objects {
-    use crate::config::AppConfig;
+    use crate::config::{AppConfig, AWS_DEFAULT_REGION};
 
-    use super::aws::build_shared_config;
     use super::{ListObjectsError, S3Error};
+    use aws_config::{BehaviorVersion, Region};
     use axum::extract::State;
     use axum::{http::StatusCode, response::IntoResponse, Json};
     use axum_macros::debug_handler;
@@ -294,9 +301,12 @@ pub mod list_objects {
     }
 
     async fn list(app_config: &AppConfig) -> Result<Vec<String>, ListObjectsError> {
-        let sdk_config = build_shared_config(app_config).await.load().await;
-        let client = aws_sdk_s3::Client::new(&sdk_config);
+        let sdk_config = aws_config::defaults(BehaviorVersion::latest())
+            .region(Region::from_static(AWS_DEFAULT_REGION))
+            .load()
+            .await;
 
+        let client = aws_sdk_s3::Client::new(&sdk_config);
         let resp = client
             .list_objects_v2()
             .bucket(&app_config.aws_s3_bucket_name)
@@ -311,25 +321,5 @@ pub mod list_objects {
             .map(|c| c.key().unwrap_or_default().to_owned())
             .collect::<Vec<String>>();
         Ok(objs)
-    }
-}
-
-mod aws {
-    use crate::config::AppConfig;
-    use crate::config::AWS_DEFAULT_REGION;
-    use aws_config::sts::AssumeRoleProvider;
-    use aws_config::BehaviorVersion;
-    use aws_config::ConfigLoader;
-    use aws_types::region::Region;
-
-    pub async fn build_shared_config(app_config: &AppConfig) -> ConfigLoader {
-        let region = Region::from_static(AWS_DEFAULT_REGION);
-        let shared_config = aws_config::defaults(BehaviorVersion::latest()).region(region);
-        let provider = AssumeRoleProvider::builder(&app_config.aws_iam_role_arn)
-            .session_name("webserver-session")
-            .build()
-            .await;
-
-        shared_config.credentials_provider(provider)
     }
 }

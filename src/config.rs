@@ -7,7 +7,6 @@ pub struct AppConfig {
     pub http_host: String,
     pub http_port: String,
     pub aws_s3_bucket_name: String,
-    pub aws_iam_role_arn: String,
 }
 
 impl AppConfig {
@@ -16,12 +15,10 @@ impl AppConfig {
         let http_port = env::var("HTTP_PORT").expect("HTTP_PORT is not set");
         let aws_s3_bucket_name =
             env::var("AWS_S3_BUCKET_NAME").expect("AWS_S3_BUCKET_NAME is not set");
-        let aws_iam_role_arn = env::var("AWS_IAM_ROLE_ARN").expect("AWS_IAM_ROLE_ARN is not set");
 
         AppConfig {
             http_host,
             http_port,
-            aws_iam_role_arn,
             aws_s3_bucket_name,
         }
     }
