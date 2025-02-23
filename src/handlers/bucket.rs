@@ -1,13 +1,11 @@
-use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use tracing::{event, Level};
 
 #[derive(Serialize, Deserialize)]
 pub struct ObjectSeed {
     key: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct S3Error(String);
 
 impl S3Error {
@@ -44,146 +42,44 @@ impl<T: aws_sdk_s3::error::ProvideErrorMetadata> From<T> for S3Error {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum DownloadImageError {
-    #[error("build url")]
-    BuildUrl(#[source] url::ParseError),
-    #[error("request")]
-    Request(#[source] reqwest::Error),
-    #[error("read body")]
-    ReadBody(#[source] reqwest::Error),
-}
-
-impl From<DownloadImageError> for StatusCode {
-    fn from(value: DownloadImageError) -> Self {
-        match value {
-            DownloadImageError::BuildUrl(e) => {
-                event!(Level::ERROR, "{}", e);
-                StatusCode::BAD_REQUEST
-            }
-            DownloadImageError::ReadBody(e) => {
-                event!(Level::ERROR, "{}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-            DownloadImageError::Request(e) => {
-                event!(Level::ERROR, "{}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        }
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum SaveImageError {
-    #[error("create file")]
-    CreateFile(#[source] std::io::Error),
-    #[error("write buffer")]
-    Write(#[source] std::io::Error),
-}
-impl From<SaveImageError> for StatusCode {
-    fn from(value: SaveImageError) -> Self {
-        match value {
-            SaveImageError::CreateFile(e) => {
-                event!(Level::ERROR, "{}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-            SaveImageError::Write(e) => {
-                event!(Level::ERROR, "{}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        }
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum PutObjectError {
-    #[error("put object")]
-    Put(#[source] S3Error),
-}
-
-impl From<PutObjectError> for StatusCode {
-    fn from(value: PutObjectError) -> Self {
-        match value {
-            PutObjectError::Put(e) => {
-                event!(Level::ERROR, "{}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        }
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum GetObjectError {
-    #[error("get object")]
-    Get(#[source] S3Error),
-    #[error("read content")]
-    Read(#[source] S3Error),
-    #[error("create file")]
-    CreateFile(#[source] std::io::Error),
-    #[error("write file")]
-    WriteFile(#[source] std::io::Error),
-}
-
-impl From<GetObjectError> for StatusCode {
-    fn from(value: GetObjectError) -> Self {
-        match value {
-            GetObjectError::Get(e) => {
-                event!(Level::ERROR, "{}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-            GetObjectError::Read(e) => {
-                event!(Level::ERROR, "{}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-            GetObjectError::CreateFile(e) => {
-                event!(Level::ERROR, "{}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-            GetObjectError::WriteFile(e) => {
-                event!(Level::ERROR, "{}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        }
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ListObjectsError {
-    #[error("list objects in a bucket")]
-    List(#[source] S3Error),
-}
-
-impl From<ListObjectsError> for StatusCode {
-    fn from(value: ListObjectsError) -> Self {
-        match value {
-            ListObjectsError::List(e) => {
-                event!(Level::ERROR, "{}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        }
-    }
-}
-
 pub mod put_object {
     use crate::config::{AppConfig, AWS_DEFAULT_REGION};
 
-    use super::{ObjectSeed, PutObjectError, S3Error};
+    use super::{ObjectSeed, S3Error};
     use aws_config::{BehaviorVersion, Region};
     use axum::extract::{Json, State};
-    use axum::{http::StatusCode, response::IntoResponse};
+    use axum::http::{Response, StatusCode};
+    use axum::response::IntoResponse;
     use axum_macros::debug_handler;
     use tracing::{event, Level};
+
+    type ErrResp = (StatusCode, String);
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum PutObjectError {
+        #[error("put object")]
+        Put(#[source] S3Error),
+    }
+
+    impl From<PutObjectError> for ErrResp {
+        fn from(value: PutObjectError) -> Self {
+            match value {
+                PutObjectError::Put(e) => {
+                    event!(Level::ERROR, "{}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                }
+            }
+        }
+    }
 
     #[debug_handler]
     pub async fn handle(
         State(app_config): State<AppConfig>,
         Json(obj): Json<ObjectSeed>,
-    ) -> Result<impl IntoResponse, StatusCode> {
-        put_object(&app_config, &obj)
-            .await
-            .map_err(StatusCode::from)?;
-        event!(Level::INFO, "{}", &obj.key);
-        Ok(())
+    ) -> Result<impl IntoResponse, (StatusCode, String)> {
+        put_object(&app_config, &obj).await.map_err(ErrResp::from)?;
+        let r = Response::builder().body("success".to_string()).unwrap();
+        Ok((StatusCode::OK, r))
     }
 
     async fn put_object(app_config: &AppConfig, obj: &ObjectSeed) -> Result<(), PutObjectError> {
@@ -206,6 +102,7 @@ pub mod put_object {
             .await
             .map_err(S3Error::from)
             .map_err(PutObjectError::Put)?;
+
         Ok(())
     }
 }
@@ -213,7 +110,7 @@ pub mod put_object {
 pub mod get_object {
     use crate::config::{AppConfig, AWS_DEFAULT_REGION};
 
-    use super::{GetObjectError, ObjectSeed, S3Error};
+    use super::{ObjectSeed, S3Error};
     use aws_config::{BehaviorVersion, Region};
     use axum::extract::{Query, State};
     use axum::{http::StatusCode, response::IntoResponse};
@@ -221,20 +118,54 @@ pub mod get_object {
     use std::{collections::HashMap, io::Write};
     use tracing::{event, Level};
 
+    type ErrResp = (StatusCode, String);
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum GetObjectError {
+        #[error("get object")]
+        Get(#[source] S3Error),
+        #[error("read content")]
+        Read(#[source] S3Error),
+        #[error("create file")]
+        CreateFile(#[source] std::io::Error),
+        #[error("write file")]
+        WriteFile(#[source] std::io::Error),
+    }
+
+    impl From<GetObjectError> for ErrResp {
+        fn from(value: GetObjectError) -> Self {
+            match value {
+                GetObjectError::Get(e) => {
+                    event!(Level::ERROR, "{}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                }
+                GetObjectError::Read(e) => {
+                    event!(Level::ERROR, "{}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                }
+                GetObjectError::CreateFile(e) => {
+                    event!(Level::ERROR, "{}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                }
+                GetObjectError::WriteFile(e) => {
+                    event!(Level::ERROR, "{}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                }
+            }
+        }
+    }
+
     #[debug_handler]
     pub async fn handle(
         State(app_config): State<AppConfig>,
         Query(params): Query<HashMap<String, String>>,
-    ) -> Result<impl IntoResponse, StatusCode> {
+    ) -> Result<impl IntoResponse, ErrResp> {
         let key = params.get("key").unwrap();
         let obj = ObjectSeed {
             key: key.to_owned(),
         };
-        let size = get_object(&app_config, &obj)
-            .await
-            .map_err(StatusCode::from)?;
-        event!(Level::INFO, "{}", &obj.key);
-        Ok(size.to_string())
+        get_object(&app_config, &obj).await.map_err(ErrResp::from)?;
+        Ok(())
     }
 
     async fn get_object(app_config: &AppConfig, obj: &ObjectSeed) -> Result<usize, GetObjectError> {
@@ -279,12 +210,32 @@ pub mod get_object {
 pub mod list_objects {
     use crate::config::{AppConfig, AWS_DEFAULT_REGION};
 
-    use super::{ListObjectsError, S3Error};
+    use super::S3Error;
     use aws_config::{BehaviorVersion, Region};
     use axum::extract::State;
     use axum::{http::StatusCode, response::IntoResponse, Json};
     use axum_macros::debug_handler;
     use serde::{Deserialize, Serialize};
+    use tracing::{event, Level};
+
+    type ErrResp = (StatusCode, String);
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum ListObjectsError {
+        #[error("list objects in a bucket")]
+        List(#[source] S3Error),
+    }
+
+    impl From<ListObjectsError> for ErrResp {
+        fn from(value: ListObjectsError) -> Self {
+            match value {
+                ListObjectsError::List(e) => {
+                    event!(Level::ERROR, "{}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                }
+            }
+        }
+    }
 
     #[derive(Serialize, Deserialize)]
     pub struct ObjectKeys {
@@ -292,10 +243,8 @@ pub mod list_objects {
     }
 
     #[debug_handler]
-    pub async fn handle(
-        State(app_config): State<AppConfig>,
-    ) -> Result<impl IntoResponse, StatusCode> {
-        let result = list(&app_config).await.map_err(StatusCode::from)?;
+    pub async fn handle(State(app_config): State<AppConfig>) -> Result<impl IntoResponse, ErrResp> {
+        let result = list(&app_config).await.map_err(ErrResp::from)?;
         let obj_keys = ObjectKeys { keys: result };
         Ok((StatusCode::OK, Json(obj_keys)))
     }
