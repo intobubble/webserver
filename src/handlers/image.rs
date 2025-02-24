@@ -23,6 +23,8 @@ impl Image {
 }
 
 pub mod fetch {
+    use crate::handlers::error::{ErrResp, ErrRespBody};
+
     use super::Image;
     use axum::extract::Query;
     use axum::http::StatusCode;
@@ -30,10 +32,7 @@ pub mod fetch {
 
     use axum_macros::debug_handler;
     use std::fs::File;
-    use tracing::{event, Level};
     use validator::Validate;
-
-    type ErrResp = (StatusCode, String);
 
     #[derive(Debug, thiserror::Error)]
     pub enum FetchImageError {
@@ -51,32 +50,27 @@ pub mod fetch {
         Write(#[source] std::io::Error),
     }
 
+    impl From<FetchImageError> for ErrRespBody {
+        fn from(value: FetchImageError) -> Self {
+            ErrRespBody {
+                message: value.to_string(),
+            }
+        }
+    }
+
     impl From<FetchImageError> for ErrResp {
         fn from(value: FetchImageError) -> Self {
             match value {
-                FetchImageError::InvalidInput(e) => {
-                    event!(Level::ERROR, "{}", e);
-                    (StatusCode::BAD_REQUEST, e.to_string())
+                FetchImageError::InvalidInput(_) | FetchImageError::BuildUrl(_) => {
+                    let body = ErrRespBody::from(value);
+                    (StatusCode::BAD_REQUEST, axum::Json(body))
                 }
-                FetchImageError::BuildUrl(e) => {
-                    event!(Level::ERROR, "{}", e);
-                    (StatusCode::BAD_REQUEST, e.to_string())
-                }
-                FetchImageError::ReadBody(e) => {
-                    event!(Level::ERROR, "{}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                }
-                FetchImageError::Request(e) => {
-                    event!(Level::ERROR, "{}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                }
-                FetchImageError::CreateFile(e) => {
-                    event!(Level::ERROR, "{}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                }
-                FetchImageError::Write(e) => {
-                    event!(Level::ERROR, "{}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                FetchImageError::ReadBody(_)
+                | FetchImageError::Request(_)
+                | FetchImageError::CreateFile(_)
+                | FetchImageError::Write(_) => {
+                    let body = ErrRespBody::from(value);
+                    (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(body))
                 }
             }
         }
@@ -92,7 +86,7 @@ pub mod fetch {
             .map_err(ErrResp::from)?;
         let bytes = send_get(&image).await.map_err(ErrResp::from)?;
         save_as_file(&image, &bytes).await.map_err(ErrResp::from)?;
-        Ok(())
+        Ok((StatusCode::OK, ()))
     }
 
     async fn send_get(image: &Image) -> Result<bytes::Bytes, FetchImageError> {

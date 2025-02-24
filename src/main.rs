@@ -1,11 +1,18 @@
-use axum::{
-    routing::{get, put},
-    Router,
-};
+use axum::routing::{get, put};
+use axum::Router;
 use config::AppConfig;
-use tracing::{event, Level};
+use serde::Serialize;
+use tower::ServiceBuilder;
+use tower_http::trace::TraceLayer;
+use tracing::Span;
 pub mod config;
 pub mod handlers;
+
+#[derive(Serialize, Debug)]
+struct RequestLog {
+    path: String,
+    method: String,
+}
 
 #[tokio::main]
 async fn main() {
@@ -20,21 +27,27 @@ async fn main() {
         tokio::net::TcpListener::bind(format!("{}:{}", &app_conf.http_host, &app_conf.http_port))
             .await
             .unwrap();
-    event!(
-        Level::INFO,
-        "web server is running on {}:{}",
-        &app_conf.http_host,
-        &app_conf.http_port
-    );
     axum::serve(listener, app).await.unwrap();
 }
 
 fn app() -> Router {
     let app_conf = AppConfig::from_env();
+
     Router::new()
         .route("/image", get(handlers::image::fetch::handle))
         .route("/object", put(handlers::bucket::put_object::handle))
         .route("/object", get(handlers::bucket::get_object::handle))
         .route("/object/list", get(handlers::bucket::list_objects::handle))
+        .layer(
+            ServiceBuilder::new().layer(TraceLayer::new_for_http().on_request(
+                |req: &axum::http::Request<_>, _span: &Span| {
+                    let l = RequestLog {
+                        path: req.uri().path().to_string(),
+                        method: req.method().to_string(),
+                    };
+                    tracing::info!("{}", serde_json::to_string(&l).unwrap())
+                },
+            )),
+        )
         .with_state(app_conf)
 }
