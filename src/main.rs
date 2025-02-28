@@ -27,6 +27,7 @@ fn app() -> Router {
     let app_conf = AppConfig::from_env();
 
     Router::new()
+        .route("/health", get(handlers::health::get_health::handle))
         .route("/image", get(handlers::image::fetch::handle))
         .route("/object", put(handlers::bucket::put_object::handle))
         .route("/object", get(handlers::bucket::get_object::handle))
